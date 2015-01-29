@@ -22,14 +22,17 @@ import Realm.Private
 // MARK: Object Retrieval
 
 /**
-Returns all objects of the given type in the default Realm.
+Returns all objects of the given type in the specified Realm default realm,
+or in the default realm if the `realm` argument is omitted.
 
-:param: type The type of the objects to be returned.
+:param: type  The type of the objects to be returned.
+:param: realm The Realm instance to query.
+              The default Realm will be used if this argument is omitted.
 
-:returns: Results with all objects of the given type in the default Realm.
+:returns: Results with all objects of the given type in the specified Realm.
 */
-public func objects<T: Object>(type: T.Type) -> Results<T> {
-    return Results<T>(RLMGetObjects(RLMRealm.defaultRealm(), T.className(), nil))
+public func objects<T: Object>(type: T.Type, inRealm realm: Realm = defaultRealm()) -> Results<T> {
+    return Results<T>(RLMGetObjects(realm.rlmRealm, T.className(), nil))
 }
 
 // MARK: Default Realm Helpers
@@ -43,8 +46,13 @@ The location of the default Realm as a string. Can be overridden.
 
 :returns: Location of the default Realm.
 */
-public func defaultRealmPath() -> String {
-    return RLMRealm.defaultRealmPath()
+public var defaultRealmPath: String {
+    set {
+        RLMRealm.setDefaultRealmPath(newValue)
+    }
+    get {
+        return RLMRealm.defaultRealmPath()
+    }
 }
 
 /**
@@ -57,7 +65,26 @@ directory on OS X.
 :returns: The default `Realm` instance for the current thread.
 */
 public func defaultRealm() -> Realm {
-    return Realm(rlmRealm: RLMRealm.defaultRealm())
+    return Realm(RLMRealm.defaultRealm())
+}
+
+/**
+Set the encryption key to use when opening Realms at a certain path.
+
+This can be used as an alternative to explicitly passing the key to
+`Realm(path:, encryptionKey:, readOnly:, error:)` each time a Realm instance is
+needed. The encryption key will be used any time a Realm is opened with
+`Realm(path:)` or `defaultRealm()`.
+
+If you do not want Realm to hold on to your encryption keys any longer than
+needed, then use `Realm(path:, encryptionKey:, readOnly:, error:)` rather than this
+method.
+
+:param: encryptionKey 64-byte encryption key to use, or `nil` to unset.
+:param: path          Realm path to set the encryption key for.
+*/
+public func setEncryptionKey(encryptionKey: NSData?, forRealmsAtPath path: String) {
+    RLMRealm.setEncryptionKey(encryptionKey, forRealmsAtPath: path)
 }
 
 /**
@@ -82,11 +109,11 @@ strong references to it.
           call it in each block which is dispatched, as a queue is not guaranteed to run
           on a consistent thread.
 */
-public class Realm {
+public final class Realm {
 
     // MARK: Properties
 
-    var rlmRealm: RLMRealm
+    internal var rlmRealm: RLMRealm
 
     /// Path to the file where this Realm is persisted.
     public var path: String { return rlmRealm.path }
@@ -133,7 +160,7 @@ public class Realm {
 
     // MARK: Initializers
 
-    init(rlmRealm: RLMRealm) {
+    internal init(_ rlmRealm: RLMRealm) {
         self.rlmRealm = rlmRealm
     }
 
@@ -143,7 +170,7 @@ public class Realm {
     :param: path Path to the realm file.
     */
     public convenience init(path: String) {
-        self.init(rlmRealm: RLMRealm(path: path, readOnly: false, error: nil))
+        self.init(RLMRealm(path: path, readOnly: false, error: nil))
     }
 
     /**
@@ -162,7 +189,7 @@ public class Realm {
     :param: identifier A string used to identify a particular in-memory Realm.
     */
     public convenience init(inMemoryIdentifier: String) {
-        self.init(rlmRealm: RLMRealm.inMemoryRealmWithIdentifier(inMemoryIdentifier))
+        self.init(RLMRealm.inMemoryRealmWithIdentifier(inMemoryIdentifier))
     }
 
     /**
@@ -184,11 +211,11 @@ public class Realm {
                      that describes the problem. If you are not interested in
                      possible errors, omit the argument, or pass in `nil`.
     */
-    public convenience init?(path: String, readOnly readonly: Bool, error: NSErrorPointer = nil) {
-        if let rlmRealm = RLMRealm(path: path, readOnly: readonly, error: error) as RLMRealm? {
-            self.init(rlmRealm: rlmRealm)
+    public convenience init?(path: String, readOnly: Bool, error: NSErrorPointer = nil) {
+        if let rlmRealm = RLMRealm(path: path, readOnly: readOnly, error: error) as RLMRealm? {
+            self.init(rlmRealm)
         } else {
-            self.init(rlmRealm: RLMRealm())
+            self.init(RLMRealm()) // `rlmRealm` cannot be nil.
             return nil
         }
     }
@@ -213,9 +240,9 @@ public class Realm {
     */
     public convenience init?(path: String, encryptionKey: NSData, readOnly: Bool, error: NSErrorPointer = nil) {
         if let rlmRealm = RLMRealm(path: path, encryptionKey: encryptionKey, readOnly: readOnly, error: error) as RLMRealm? {
-            self.init(rlmRealm: rlmRealm)
+            self.init(rlmRealm)
         } else {
-            self.init(rlmRealm: RLMRealm())
+            self.init(RLMRealm())
             return nil
         }
     }
@@ -234,9 +261,11 @@ public class Realm {
     :param: error If an error occurs, upon return contains an `NSError` object
                   that describes the problem. If you are not interested in
                   possible errors, omit the argument, or pass in `nil`.
+
+    :returns: Whether the realm was copied successfully.
     */
-    public func writeCopyToPath(path: String, error: NSErrorPointer = nil) {
-        rlmRealm.writeCopyToPath(path, error: error)
+    public func writeCopyToPath(path: String, error: NSErrorPointer = nil) -> Bool {
+        return rlmRealm.writeCopyToPath(path, error: error)
     }
 
     /**
@@ -252,9 +281,11 @@ public class Realm {
     :param: error         If an error occurs, upon return contains an `NSError` object
                           that describes the problem. If you are not interested in
                           possible errors, omit the argument, or pass in `nil`.
+
+    :returns: Whether the realm was copied successfully.
     */
-    public func writeCopyToPath(path: String, encryptionKey: NSData, error: NSErrorPointer = nil) {
-        rlmRealm.writeCopyToPath(path, encryptionKey: encryptionKey, error: error)
+    public func writeCopyToPath(path: String, encryptionKey: NSData, error: NSErrorPointer = nil) -> Bool {
+        return rlmRealm.writeCopyToPath(path, encryptionKey: encryptionKey, error: error)
     }
 
     // MARK: Transactions
@@ -302,14 +333,48 @@ public class Realm {
         rlmRealm.commitWriteTransaction()
     }
 
+    /**
+    Revert all writes made in the current write transaction and end the transaction.
+
+    This rolls back all objects in the Realm to the state they were in at the
+    beginning of the write transaction, and then ends the transaction.
+
+    This restores the data for deleted objects, but does not re-validated deleted
+    accessor objects. Any `Object`s which were added to the Realm will be
+    invalidated rather than switching back to standalone objects.
+    Given the following code:
+
+    ```swift
+    let oldObject = objects(ObjectType).first!
+    let newObject = ObjectType()
+
+    realm.beginWrite()
+    realm.add(newObject)
+    realm.delete(oldObject)
+    realm.cancelWrite()
+    ```
+
+    Both `oldObject` and `newObject` will return `true` for `invalidated`,
+    but re-running the query which provided `oldObject` will once again return
+    the valid object.
+
+    Calling this when not in a write transaction will throw an exception.
+    */
+    public func cancelWrite() {
+        rlmRealm.cancelWriteTransaction()
+    }
+
     // MARK: Refresh
 
     /**
     Update a `Realm` and outstanding objects to point to the most recent
     data for this `Realm`.
+
+    :returns: Whether the realm had any updates.
+              Note that this may return true even if no data has actually changed.
     */
-    public func refresh() {
-        rlmRealm.refresh()
+    public func refresh() -> Bool {
+        return rlmRealm.refresh()
     }
 
     // MARK: Invalidation
@@ -366,9 +431,9 @@ public class Realm {
 
     :param: objects A sequence which contains objects to be added to this Realm.
     */
-    public func add<S where S: SequenceType>(objects: S) {
+    public func add<S: SequenceType where S.Generator.Element == Object>(objects: S) {
         for obj in objects {
-            RLMAddObjectToRealm(obj as Object, rlmRealm, .allZeros)
+            RLMAddObjectToRealm(obj, rlmRealm, .allZeros)
         }
     }
 
@@ -397,9 +462,9 @@ public class Realm {
 
     :param: objects A sequence of `Object`s to be added to this Realm.
     */
-    public func addOrUpdate<S where S: SequenceType>(objects: S) {
+    public func addOrUpdate<S: SequenceType where S.Generator.Element == Object>(objects: S) {
         for obj in objects {
-            rlmRealm.addOrUpdateObject(obj as RLMObject)
+            addOrUpdate(obj)
         }
     }
 
@@ -417,15 +482,6 @@ public class Realm {
 
     :param: object The objects to be deleted.
     */
-    public func delete(objects: [Object]) {
-        rlmRealm.deleteObjects(objects)
-    }
-
-    /**
-    Deletes the given objects from this Realm.
-
-    :param: object The objects to be deleted.
-    */
     public func delete(objects: List<Object>) {
         rlmRealm.deleteObjects(objects)
     }
@@ -435,8 +491,10 @@ public class Realm {
 
     :param: object The objects to be deleted.
     */
-    public func delete(objects: Results<Object>) {
-        rlmRealm.deleteObjects(objects)
+    public func delete<S: SequenceType where S.Generator.Element == Object>(objects: S) {
+        for obj in objects {
+            RLMDeleteObjectFromRealm(obj)
+        }
     }
 
     /**
@@ -474,19 +532,6 @@ public class Realm {
     public func removeNotification(notificationToken: NotificationToken) {
         rlmRealm.removeNotification(notificationToken)
     }
-
-    // MARK: Object Retrieval
-
-    /**
-    Returns all objects of the given type in this Realm.
-
-    :param: type The type of the objects to be returned.
-
-    :returns: Results with all objects of the given type in this Realm.
-    */
-    public func objects<T: Object>(type: T.Type) -> Results<T> {
-        return Results<T>(RLMGetObjects(rlmRealm, T.className(), nil))
-    }
 }
 
 // MARK: Notifications
@@ -518,8 +563,8 @@ public enum Notification: String {
 /// Closure to run when the data in a Realm was modified.
 public typealias NotificationBlock = (notification: Notification, realm: Realm) -> Void
 
-func rlmNotificationBlockFromNotificationBlock(notificationBlock: NotificationBlock) -> RLMNotificationBlock {
+internal func rlmNotificationBlockFromNotificationBlock(notificationBlock: NotificationBlock) -> RLMNotificationBlock {
     return { rlmNotification, rlmRealm in
-        return notificationBlock(notification: Notification(rawValue: rlmNotification)!, realm: Realm(rlmRealm: rlmRealm))
+        return notificationBlock(notification: Notification(rawValue: rlmNotification)!, realm: Realm(rlmRealm))
     }
 }
