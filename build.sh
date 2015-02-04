@@ -359,6 +359,7 @@ case "$COMMAND" in
         ;;
 
     "verify")
+        export XCMODE=xcpretty
         sh build.sh docs
         sh build.sh test-all 
         sh build.sh examples 

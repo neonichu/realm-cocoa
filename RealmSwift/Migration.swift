@@ -134,7 +134,7 @@ exactly when and how migrations are performed.
           that occured otherwise.
 */
 public func migrateRealm(path: String, encryptionKey: NSData? = nil) -> NSError? {
-    if (encryptionKey == nil) {
+    if encryptionKey == nil {
         return RLMRealm.migrateRealmAtPath(path)
     }
     else {
