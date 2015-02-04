@@ -318,6 +318,7 @@ case "$COMMAND" in
     "test-all")
         set +e
         failed=0
+        sh build.sh download-core || failed=1
         sh build.sh test Release || failed=1
         sh build.sh test Debug || failed=1
         exit $failed
